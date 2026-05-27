@@ -11,7 +11,7 @@ from src.cryptomamba_ui.data import add_chronological_split, add_dataset_split, 
 
 @dataclass(frozen=True)
 class DatasetBundle:
-    """Processed dataset state used by the Streamlit screens."""
+    """Processed dataset state used by the Streamlit pages."""
 
     raw_df: pd.DataFrame
     daily_df: pd.DataFrame
@@ -36,7 +36,7 @@ class DatasetService:
     def load_paper_sample(self) -> DatasetBundle:
         return self._process_csv(
             self._sample_path,
-            source_label="Paper sample",
+            source_label="Paper dataset",
             source_detail=f"File: {self._sample_path.relative_to(self._display_root)}",
             split_strategy="paper_date",
         )
