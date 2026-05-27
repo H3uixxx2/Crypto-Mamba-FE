@@ -13,7 +13,8 @@ The Mac does not load the Mamba model and does not need CUDA.
 ## Setup
 
 ```bash
-cd /Users/hieutha/PycharmProject/cryptomamba-streamlit-ui
+git clone https://github.com/H3uixxx2/Crypto-Mamba-FE.git
+cd Crypto-Mamba-FE
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -24,6 +25,12 @@ Edit `.env` and set:
 
 ```text
 CRYPTO_MAMBA_API_URL=https://YOUR-NGROK-URL.ngrok-free.app
+```
+
+Optional, if you have the core CryptoMamba repo locally and want the UI to read evaluation artifacts:
+
+```text
+CRYPTO_MAMBA_CORE_ROOT=/path/to/CryptoMamba
 ```
 
 ## Run

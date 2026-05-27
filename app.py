@@ -22,7 +22,7 @@ from src.cryptomamba_ui.dataset_service import DatasetService
 ROOT = Path(__file__).parent
 SAMPLE_PATH = ROOT / "sample_data" / "btc_ohlcv_paper_splits.csv"
 DATASET_SERVICE = DatasetService(sample_path=SAMPLE_PATH, display_root=ROOT)
-CORE_ROOT = ROOT.parent / "CryptoMamba"
+CORE_ROOT = Path(os.getenv("CRYPTO_MAMBA_CORE_ROOT", ROOT.parent / "CryptoMamba"))
 EVALUATION_DIR = CORE_ROOT / "output" / "evaluation"
 FORECAST_METRICS_PATH = EVALUATION_DIR / "forecast_metrics.csv"
 BASELINE_METRICS_PATH = EVALUATION_DIR / "baseline_metrics.csv"
@@ -880,7 +880,7 @@ else:
                 {"Screen": "2 · Reproduce", "Status": "Scaffolded", "Current truth": "Checkpoint replay summary/fallback", "Next work": "Read forecast/baseline artifacts instead of fallback"},
                 {"Screen": "3 · Predict", "Status": "Blocked by API", "Current truth": "Demo Mock + request payload scaffold", "Next work": "Colab/FastAPI real cmamba_v inference"},
                 {"Screen": "4 · Trading", "Status": "Scaffolded", "Current truth": "One-day decision simulator only", "Next work": "Chronological backtest with transaction costs"},
-                {"Screen": "5 · Plan", "Status": "Scaffolded", "Current truth": "Roadmap/status dashboard", "Next work": "Keep synced with ROADMAP.md and artifacts"},
+                {"Screen": "5 · Plan", "Status": "Scaffolded", "Current truth": "Status dashboard", "Next work": "Keep synced with generated artifacts"},
             ]
         ),
         hide_index=True,
