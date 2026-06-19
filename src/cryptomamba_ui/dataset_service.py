@@ -63,7 +63,7 @@ class DatasetService:
 
     @staticmethod
     def _process_csv(path_or_buffer: str | Path | Any, source_label: str, source_detail: str, split_strategy: str) -> DatasetBundle:
-        raw_df = DatasetService._read_csv(path_or_buffer)
+        raw_df = DatasetService.read_csv(path_or_buffer)
         daily_df = daily_ohlcv(raw_df)
         if split_strategy == "paper_date":
             processed_df = add_dataset_split(daily_df)
@@ -81,7 +81,7 @@ class DatasetService:
         )
 
     @staticmethod
-    def _read_csv(path_or_buffer: str | Path | Any) -> pd.DataFrame:
+    def read_csv(path_or_buffer: str | Path | Any) -> pd.DataFrame:
         DatasetService._rewind(path_or_buffer)
         frame = pd.read_csv(path_or_buffer)
         if len(frame.columns) > 1:

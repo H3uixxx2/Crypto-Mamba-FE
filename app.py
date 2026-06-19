@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from src.cryptomamba_ui.data import CandleDataError
 from src.cryptomamba_ui.dataset_service import DatasetBundle, DatasetService
-from src.cryptomamba_ui.pages.data_page import render_data_page, render_data_source_controls, render_empty_upload
+from src.cryptomamba_ui.pages.data_page import render_data_page, render_data_source_controls, render_empty_upload, render_invalid_upload_page
 from src.cryptomamba_ui.pages.plan_page import render_plan_page
 from src.cryptomamba_ui.pages.predict_page import render_predict_page
 from src.cryptomamba_ui.pages.reproduce_page import render_reproduce_page
@@ -17,13 +17,23 @@ from src.cryptomamba_ui.pages.trading_page import render_trading_page
 from src.cryptomamba_ui.ui import render_header, render_style
 from src.cryptomamba_ui.upload_state import remember_uploaded_csv
 
-ROOT = Path(__file__).parent
+
+def resolve_app_root(script_path: str | Path) -> Path:
+    return Path(script_path).resolve().parent
+
+
+ROOT = resolve_app_root(__file__)
+load_dotenv(ROOT / ".env")
 SAMPLE_PATH = ROOT / "sample_data" / "btc_ohlcv_paper_splits.csv"
 DATASET_SERVICE = DatasetService(sample_path=SAMPLE_PATH, display_root=ROOT)
-CORE_ROOT = Path(os.getenv("CRYPTO_MAMBA_CORE_ROOT", ROOT.parent / "CryptoMamba"))
+CORE_ROOT = Path(os.getenv("CRYPTO_MAMBA_CORE_ROOT", ROOT.parent / "CryptoMamba")).expanduser().resolve()
 EVALUATION_DIR = CORE_ROOT / "output" / "evaluation"
+REPRODUCE_DIR = CORE_ROOT / "output" / "reproduce_colab_train"
 FORECAST_METRICS_PATH = EVALUATION_DIR / "forecast_metrics.csv"
 BASELINE_METRICS_PATH = EVALUATION_DIR / "baseline_metrics.csv"
+TRADING_REPLAY_METRICS_PATH = EVALUATION_DIR / "trading_replay_metrics.csv"
+REPRODUCE_PROVENANCE_DIR = REPRODUCE_DIR / "provenance"
+SELECTED_CHECKPOINT_PATH = REPRODUCE_DIR / "checkpoints" / "cmamba_v_best_colab_train.ckpt"
 TRADING_METRICS_PATH = EVALUATION_DIR / "trading_metrics.csv"
 REGIME_METRICS_PATH = EVALUATION_DIR / "regime_metrics.csv"
 
@@ -88,6 +98,9 @@ def data_page() -> None:
     try:
         dataset_ready, dataset = load_selected_dataset(data_mode, uploaded)
     except (CandleDataError, pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:
+        if data_mode == "Upload CSV" and uploaded is not None:
+            render_invalid_upload_page(uploaded, source_detail=f"File: {getattr(uploaded, 'name', 'uploaded.csv')}")
+            return
         st.error(f"Invalid dataset: {exc}")
         st.stop()
     if not dataset_ready:
@@ -133,7 +146,6 @@ def plan_page() -> None:
 
 
 def main() -> None:
-    load_dotenv(ROOT / ".env")
     st.set_page_config(page_title="CryptoMamba Bitcoin Forecast", page_icon="₿", layout="wide")
     render_style()
     render_header()
