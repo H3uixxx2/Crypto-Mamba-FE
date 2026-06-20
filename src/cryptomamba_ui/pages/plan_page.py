@@ -15,7 +15,7 @@ def render_plan_page(core_root: Path, forecast_metrics_path: Path, baseline_metr
         pd.DataFrame(
             [
                 {"Page": "1 · Data", "Status": "Ready for demo", "Current truth": "Paper split + 14-day window shown", "Next work": "CSV validation tests + final visual review"},
-                {"Page": "2 · Reproduce", "Status": "Scaffolded", "Current truth": "Checkpoint replay summary/fallback", "Next work": "Read forecast/baseline artifacts instead of fallback"},
+                {"Page": "2 · Reproduce", "Status": "Done", "Current truth": "Validated forecast/replay/baseline/provenance artifacts", "Next work": "Use frozen checkpoint and fixture in Phase 3"},
                 {"Page": "3 · Predict", "Status": "Blocked by API", "Current truth": "Demo Mock + request payload scaffold", "Next work": "Colab/FastAPI real cmamba_v inference"},
                 {"Page": "4 · Trading", "Status": "Scaffolded", "Current truth": "One-day decision simulator only", "Next work": "Chronological backtest with transaction costs"},
                 {"Page": "5 · Plan", "Status": "Scaffolded", "Current truth": "Status dashboard", "Next work": "Keep synced with generated artifacts"},
@@ -30,9 +30,9 @@ def render_plan_page(core_root: Path, forecast_metrics_path: Path, baseline_metr
         st.markdown(
             """
             <div class="card">
-            <div class="label">Scaffolded / partially verified</div>
+            <div class="label">Validated / scaffolded</div>
             <b>1. Data explorer</b>: ready for demo<br>
-            <b>2. Checkpoint replay</b>: partial evidence<br>
+            <b>2. Reproduce</b>: artifact-backed and validated<br>
             <b>3. Predict page</b>: UI/API scaffold<br>
             <b>4. Trading page</b>: one-day simulator only<br>
             </div>
@@ -71,7 +71,7 @@ def render_plan_page(core_root: Path, forecast_metrics_path: Path, baseline_metr
     st.markdown(
         """
         1. **Data**: đây là split paper, không dùng 2025 để claim reproduce.  
-        2. **Reproduce**: official checkpoint replay là nền tảng kiểm chứng ban đầu.  
+        2. **Reproduce**: official/retrained forecast, replay, baseline, checkpoint, and provenance are artifact-backed.
         3. **Predict**: UI gửi 14 nến gần nhất; Live API mới là inference thật.  
         4. **Trading**: one-day simulator giải thích logic action, còn full backtest nằm trong artifact.  
         5. **Research evidence**: baseline, transaction cost, regime robustness, usability là phần phải hoàn thiện cho thesis.

@@ -113,7 +113,11 @@ def data_page() -> None:
 
 
 def reproduce_page() -> None:
-    render_reproduce_page(FORECAST_METRICS_PATH, TRADING_METRICS_PATH)
+    render_reproduce_page(
+        evaluation_dir=EVALUATION_DIR,
+        provenance_dir=REPRODUCE_PROVENANCE_DIR,
+        selected_checkpoint_path=SELECTED_CHECKPOINT_PATH,
+    )
 
 
 def predict_page() -> None:
