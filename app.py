@@ -36,7 +36,6 @@ REPRODUCE_PROVENANCE_DIR = REPRODUCE_DIR / "provenance"
 SELECTED_CHECKPOINT_PATH = REPRODUCE_DIR / "checkpoints" / "cmamba_v_best_colab_train.ckpt"
 TRADING_METRICS_PATH = EVALUATION_DIR / "trading_metrics.csv"
 REGIME_METRICS_PATH = EVALUATION_DIR / "regime_metrics.csv"
-OFFLINE_PREDICTION_PATH = EVALUATION_DIR / "offline_prediction.json"
 
 
 def initialize_session_state() -> None:
@@ -133,7 +132,6 @@ def predict_page() -> None:
         inference_mode=inference_mode,
         api_url=str(st.session_state.get("api_url", "") or "").strip(),
         risk=float(st.session_state.get("risk", 2.0)),
-        offline_prediction_path=OFFLINE_PREDICTION_PATH,
     )
 
 
