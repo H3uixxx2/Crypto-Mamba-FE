@@ -28,8 +28,13 @@ class CryptoMambaApiClient:
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
+        # ngrok free tier serves an HTML browser-warning interstitial unless this
+        # header is present; without it the API response is unreachable HTML.
+        headers = {"ngrok-skip-browser-warning": "true", **kwargs.pop("headers", {})}
         try:
-            response = requests.request(method, url, timeout=self.timeout_seconds, **kwargs)
+            response = requests.request(
+                method, url, timeout=self.timeout_seconds, headers=headers, **kwargs
+            )
         except requests.RequestException as exc:
             raise ApiClientError(f"Cannot reach CryptoMamba API at {url}: {exc}") from exc
 

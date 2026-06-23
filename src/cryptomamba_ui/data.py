@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +16,11 @@ PAPER_SPLITS: dict[str, tuple[str, str]] = {
 SPLIT_ORDER = ["train", "validation", "test", "out_of_scope"]
 MODEL_FEATURE_ORDER = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 MODEL_WINDOW_SIZE = 14
+# Last paper-split date the model was trained/evaluated on. Input windows ending on
+# or after this are extrapolation: the checkpoint never saw this price/timestamp
+# regime (normalize=False, raw price + raw Timestamp features), so predictions there
+# are a qualitative demo, not validated research evidence.
+MODEL_TRAIN_HORIZON = PAPER_SPLITS["test"][1]  # "2024-09-17"
 
 _COLUMN_ALIASES = {
     "date": "date",
@@ -263,6 +268,52 @@ def build_predict_payload(df: pd.DataFrame, prediction_date: str | None, risk: f
         for row in normalized.itertuples(index=False)
     ]
     return {"prediction_date": prediction_date, "risk": float(risk), "candles": candles}
+
+
+def prediction_date_bounds(df: pd.DataFrame) -> tuple[date, date]:
+    """Valid [min, max] prediction dates for the model given a dataset.
+
+    The model needs exactly MODEL_WINDOW_SIZE candles strictly before the target
+    date. So the earliest predictable date is the (window+1)-th candle's date, and
+    the latest is the day after the last candle (the true next-day forecast).
+    """
+    normalized = normalize_candles(df)
+    dates = pd.to_datetime(normalized["date"])
+    max_pred = (dates.iloc[-1] + pd.Timedelta(days=1)).date()
+    if len(normalized) > MODEL_WINDOW_SIZE:
+        min_pred = dates.iloc[MODEL_WINDOW_SIZE].date()
+    else:
+        min_pred = max_pred
+    return min_pred, max_pred
+
+
+def select_window(df: pd.DataFrame, prediction_date: str) -> pd.DataFrame:
+    """Return the MODEL_WINDOW_SIZE candles ending strictly before prediction_date.
+
+    This slides the fixed-size input window so the UI can predict any date the
+    dataset actually supports, instead of always using the last 14 candles.
+    """
+    normalized = normalize_candles(df)
+    cutoff = pd.to_datetime(prediction_date)
+    window = normalized[pd.to_datetime(normalized["date"]) < cutoff].tail(MODEL_WINDOW_SIZE)
+    if len(window) < MODEL_WINDOW_SIZE:
+        raise CandleDataError(
+            f"Not enough candles before {prediction_date}: "
+            f"need {MODEL_WINDOW_SIZE}, found {len(window)}"
+        )
+    return window.reset_index(drop=True)
+
+
+def is_out_of_distribution(window: pd.DataFrame) -> bool:
+    """True when the input window ends on/after the model's training/eval horizon.
+
+    Predictions on such windows are extrapolation beyond the validated paper split
+    and must be presented as a qualitative demo, never as validated evidence.
+    """
+    if window is None or window.empty or "date" not in window.columns:
+        return False
+    last_date = pd.to_datetime(window["date"].iloc[-1])
+    return last_date >= pd.to_datetime(MODEL_TRAIN_HORIZON)
 
 
 def model_tensor_preview(source_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:

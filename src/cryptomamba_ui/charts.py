@@ -69,6 +69,90 @@ def full_split_chart(df: pd.DataFrame, title: str) -> go.Figure:
     return fig
 
 
+def forecast_prediction_chart(
+    predictions: pd.DataFrame,
+    split: str,
+    title: str,
+    baseline: pd.DataFrame | None = None,
+) -> go.Figure:
+    """Parity scatter: predicted vs actual close. Points on the diagonal = accurate.
+
+    Author (official) and our retrained predictions are overlaid; both hugging the
+    y=x line shows the retrain reproduced the paper model. If ``baseline`` is given,
+    the naive-persistence baseline is added as a third cloud for comparison.
+    """
+    part = predictions[predictions["split"] == split]
+    official = part[part["result_type"] == "official_checkpoint"]
+    retrained = part[part["result_type"] == "retrained_checkpoint"]
+
+    naive = pd.DataFrame()
+    if baseline is not None and not baseline.empty:
+        naive = baseline[
+            (baseline["split"] == split) & (baseline["model"] == "naive_persistence")
+        ]
+
+    lo = float(part["target_close"].min())
+    hi = float(part["target_close"].max())
+    pad = (hi - lo) * 0.03
+
+    fig = go.Figure()
+    # Perfect-prediction reference line (y = x).
+    fig.add_trace(
+        go.Scatter(
+            x=[lo - pad, hi + pad],
+            y=[lo - pad, hi + pad],
+            mode="lines",
+            name="Perfect prediction (y = x)",
+            line=dict(color="#94a3b8", width=1.5, dash="dash"),
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=official["target_close"],
+            y=official["predicted_close"],
+            mode="markers",
+            name="Author model (official)",
+            marker=dict(color="#2563eb", size=6, opacity=0.45, line=dict(width=0)),
+            hovertemplate="Author<br>actual=%{x:,.0f}<br>pred=%{y:,.0f}<extra></extra>",
+        )
+    )
+    if not naive.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=naive["target_close"],
+                y=naive["predicted_close"],
+                mode="markers",
+                name="Naive baseline (yesterday's close)",
+                marker=dict(color="#f59e0b", size=5, opacity=0.35, line=dict(width=0)),
+                hovertemplate="Naive<br>actual=%{x:,.0f}<br>pred=%{y:,.0f}<extra></extra>",
+            )
+        )
+    fig.add_trace(
+        go.Scatter(
+            x=retrained["target_close"],
+            y=retrained["predicted_close"],
+            mode="markers",
+            name="Our retrained model",
+            marker=dict(color="#dc2626", size=6, opacity=0.45, line=dict(width=0)),
+            hovertemplate="Retrained<br>actual=%{x:,.0f}<br>pred=%{y:,.0f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        height=460,
+        title=title,
+        margin=dict(l=12, r=12, t=56, b=16),
+        xaxis_title="Actual BTC close (USD)",
+        yaxis_title="Predicted BTC close (USD)",
+        dragmode=False,
+        xaxis=dict(range=[lo - pad, hi + pad], fixedrange=True, constrain="domain"),
+        yaxis=dict(range=[lo - pad, hi + pad], fixedrange=True, scaleanchor="x", scaleratio=1),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
 def candle_chart(df: pd.DataFrame, title: str, prediction: dict | None = None, height: int = 430) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(

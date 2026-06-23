@@ -16,7 +16,7 @@ def render_plan_page(core_root: Path, forecast_metrics_path: Path, baseline_metr
             [
                 {"Page": "1 · Data", "Status": "Ready for demo", "Current truth": "Paper split + 14-day window shown", "Next work": "CSV validation tests + final visual review"},
                 {"Page": "2 · Reproduce", "Status": "Done", "Current truth": "Validated forecast/replay/baseline/provenance artifacts", "Next work": "Use frozen checkpoint and fixture in Phase 3"},
-                {"Page": "3 · Predict", "Status": "Blocked by API", "Current truth": "Demo Mock + request payload scaffold", "Next work": "Colab/FastAPI real cmamba_v inference"},
+                {"Page": "3 · Predict", "Status": "Live API", "Current truth": "Live Colab/FastAPI cmamba_v inference; parity vs golden fixture PASS", "Next work": "Offline-export fallback for defense day"},
                 {"Page": "4 · Trading", "Status": "Scaffolded", "Current truth": "One-day decision simulator only", "Next work": "Chronological backtest with transaction costs"},
                 {"Page": "5 · Plan", "Status": "Scaffolded", "Current truth": "Status dashboard", "Next work": "Keep synced with generated artifacts"},
             ]

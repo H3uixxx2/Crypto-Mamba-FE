@@ -5,117 +5,185 @@ import streamlit as st
 
 from src.cryptomamba_ui.api_client import ApiClientError, CryptoMambaApiClient
 from src.cryptomamba_ui.charts import CHART_CONFIG, candle_chart
-from src.cryptomamba_ui.data import build_predict_payload
-from src.cryptomamba_ui.trading_logic import mock_predict, pct
+from src.cryptomamba_ui.data import (
+    MODEL_TRAIN_HORIZON,
+    MODEL_WINDOW_SIZE,
+    CandleDataError,
+    build_predict_payload,
+    is_out_of_distribution,
+    normalize_candles,
+    prediction_date_bounds,
+    select_window,
+)
+from src.cryptomamba_ui.trading_logic import pct
 from src.cryptomamba_ui.ui import action_html, money, stat_card
 
 
 def render_predict_page(
     df: pd.DataFrame,
-    last_14: pd.DataFrame,
-    last_close: float,
-    default_prediction_date: str,
-    inference_mode: str,
+    source_label: str,
+    source_detail: str,
     api_url: str,
     risk: float,
 ) -> None:
     st.markdown("### 3. Predict")
+    st.caption(
+        f"Model nhận {MODEL_WINDOW_SIZE} nến ngày liên tiếp → dự đoán giá ĐÓNG CỬA của ngày kế tiếp."
+    )
 
-    previous_inference_mode = st.session_state.get("prediction_mode", inference_mode)
-    st.markdown("#### Inference setup")
-    cfg_mode, cfg_api, cfg_risk = st.columns([1, 2, 1])
-    with cfg_mode:
-        inference_mode = st.radio("Mode", ["Live Model API", "Demo Mock"], key="inference_mode")
-    with cfg_api:
-        if inference_mode == "Live Model API":
-            api_url = st.text_input("Colab API URL", key="api_url", placeholder="https://xxx.ngrok-free.app").strip()
-            if st.button("Check API", disabled=not api_url):
-                try:
-                    st.json(CryptoMambaApiClient(api_url).health())
-                except (ValueError, ApiClientError) as exc:
-                    st.error(str(exc))
-        else:
-            api_url = ""
-            st.caption("Demo Mock không load checkpoint; chỉ dùng để kiểm thử UI flow.")
-    with cfg_risk:
+    try:
+        normalized = normalize_candles(df)
+    except CandleDataError as exc:
+        st.error(f"Dataset chưa sẵn sàng: {exc}")
+        st.stop()
+
+    # ── 1. Nguồn dữ liệu (read-only) ────────────────────────────────────────────
+    range_start = pd.to_datetime(normalized["date"].iloc[0]).strftime("%Y-%m-%d")
+    range_end = pd.to_datetime(normalized["date"].iloc[-1]).strftime("%Y-%m-%d")
+    st.markdown("#### Nguồn dữ liệu")
+    d1, d2, d3 = st.columns(3)
+    with d1:
+        stat_card("Dataset", source_label, source_detail)
+    with d2:
+        stat_card("Khoảng dữ liệu", f"{range_start} → {range_end}", f"{len(normalized)} nến ngày")
+    with d3:
+        stat_card("Cửa sổ model", f"{MODEL_WINDOW_SIZE} nến", "input → 1 ngày dự đoán")
+
+    # ── 2. Thiết lập & input ────────────────────────────────────────────────────
+    st.markdown("#### Thiết lập dự đoán")
+    min_pred, max_pred = prediction_date_bounds(df)
+    s1, s2, s3 = st.columns([2, 1, 1])
+    with s1:
+        api_url = st.text_input(
+            "Colab API URL", key="api_url", placeholder="https://xxx.ngrok-free.app"
+        ).strip()
+    with s2:
+        prediction_date = st.date_input(
+            "Ngày dự đoán",
+            value=max_pred,
+            min_value=min_pred,
+            max_value=max_pred,
+            help=(
+                "Ngày cần dự đoán giá đóng cửa. Giới hạn trong khoảng dataset hỗ trợ "
+                f"(cần đủ {MODEL_WINDOW_SIZE} nến trước đó)."
+            ),
+        ).strftime("%Y-%m-%d")
+    with s3:
         risk = st.slider("Risk band", 0.5, 10.0, key="risk", step=0.5)
 
-    if previous_inference_mode != inference_mode:
-        st.session_state.prediction = None
-        st.session_state.prediction_payload = None
-        st.session_state.prediction_response = None
-        st.session_state.prediction_mode = inference_mode
+    if st.button("Check API", disabled=not api_url):
+        try:
+            st.json(CryptoMambaApiClient(api_url).health())
+        except (ValueError, ApiClientError) as exc:
+            st.error(str(exc))
 
-    mode_col, input_col = st.columns([1, 2])
-    with mode_col:
-        if inference_mode == "Live Model API":
-            stat_card("Inference", "Live API", "CryptoMamba checkpoint")
-        else:
-            stat_card("Inference", "Demo Mock", "no checkpoint loaded")
-            st.warning("Demo Mock does not load CryptoMamba. Use only to validate the UI flow.")
-    with input_col:
-        st.plotly_chart(candle_chart(last_14, "Last 14 candles used as model input", height=320), use_container_width=True, config=CHART_CONFIG)
+    # Build the exact 14-candle window that ends the day before prediction_date.
+    try:
+        window = select_window(df, prediction_date)
+    except CandleDataError as exc:
+        st.error(str(exc))
+        st.stop()
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        current_price = st.number_input("Current BTC price", min_value=1.0, value=last_close, step=100.0, format="%.2f")
-    with c2:
-        prediction_date = st.date_input("Prediction date", value=pd.to_datetime(default_prediction_date)).strftime("%Y-%m-%d")
-    with c3:
-        if inference_mode == "Demo Mock":
-            mock_bias = st.slider("Mock scenario", -8.0, 8.0, 1.5, 0.25)
-        else:
-            st.metric("Payload", "14 candles")
-            mock_bias = 0.0
+    window_last_close = float(window["close"].iloc[-1])
+    window_last_date = pd.to_datetime(window["date"].iloc[-1]).strftime("%Y-%m-%d")
 
-    payload = build_predict_payload(df, prediction_date=prediction_date, risk=risk)
-    payload["candles"][-1]["close"] = float(current_price)
+    # Honesty gate: predictions on data beyond the validated paper horizon are
+    # extrapolation and must never be shown as validated research evidence.
+    out_of_dist = is_out_of_distribution(window)
+    if out_of_dist:
+        st.warning(
+            f"⚠️ **Demo định tính — KHÔNG phải bằng chứng nghiên cứu đã kiểm chứng.** "
+            f"Cửa sổ input kết thúc {window_last_date}, vượt ngoài phạm vi model được "
+            f"huấn luyện/đánh giá (paper test đến {MODEL_TRAIN_HORIZON}). Checkpoint học "
+            f"trên BTC tới 2024 với feature giá/timestamp thô (normalize=False) nên dự đoán "
+            f"ngoài vùng này thường sai lệch (extrapolation)."
+        )
+    elif source_label != "Paper dataset":
+        st.info(
+            f"Dataset tùy chọn ({source_label}) nằm trong phạm vi ngày đã kiểm chứng "
+            f"(đến {MODEL_TRAIN_HORIZON}). Không phải paper split nhưng in-distribution."
+        )
 
+    i1, i2 = st.columns([1, 2])
+    with i1:
+        stat_card("Giá đóng cửa nến cuối", money(window_last_close), f"ngày {window_last_date}")
+        stat_card("Dự đoán cho ngày", prediction_date, "giá đóng cửa")
+    with i2:
+        st.plotly_chart(
+            candle_chart(window, f"{MODEL_WINDOW_SIZE} nến input (đến {window_last_date})", height=300),
+            use_container_width=True,
+            config=CHART_CONFIG,
+        )
+
+    payload = build_predict_payload(window, prediction_date=prediction_date, risk=risk)
     with st.expander("Request payload", expanded=False):
         st.json(payload)
 
+    # Drop a stale result if the request changed (dataset / date / risk).
+    signature = f"{source_detail}|{prediction_date}|{risk}"
+    if st.session_state.get("predict_signature") != signature:
+        st.session_state.prediction = None
+
     if st.button("Run prediction", type="primary", width="stretch"):
-        if inference_mode == "Live Model API":
-            if not api_url:
-                st.error("Live Model API requires Colab API URL.")
-                st.stop()
-            try:
-                result = CryptoMambaApiClient(api_url).predict(payload)
-            except (ValueError, ApiClientError) as exc:
-                st.error(str(exc))
-                st.stop()
-        else:
-            patched = df.copy()
-            patched.loc[patched.index[-1], "close"] = current_price
-            result = mock_predict(patched, current_price=current_price, bias_pct=mock_bias, risk=risk, prediction_date=prediction_date)
+        if not api_url:
+            st.error("Cần Colab API URL để chạy model thật.")
+            st.stop()
+        try:
+            result = CryptoMambaApiClient(api_url).predict(payload)
+        except (ValueError, ApiClientError) as exc:
+            st.error(str(exc))
+            st.stop()
         st.session_state.prediction = result
         st.session_state.prediction_payload = payload
         st.session_state.prediction_response = result
+        st.session_state.predict_signature = signature
 
-    prediction = st.session_state.prediction
-    if prediction:
-        p_last = float(prediction["last_close"])
-        p_pred = float(prediction["predicted_close"])
-        move = pct(p_pred, p_last)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Last close", money(p_last))
-        m2.metric("Predicted close", money(p_pred), f"{move:+.2f}%")
-        m3.metric("Source", prediction.get("model_id", inference_mode))
+    # ── 3. Kết quả ──────────────────────────────────────────────────────────────
+    prediction = st.session_state.get("prediction")
+    if not prediction:
+        st.info("Dán Colab API URL, chọn ngày dự đoán, rồi bấm Run prediction.")
+        return
 
-        if prediction.get("inference_type") == "mock":
-            st.warning("Demo Mock result only — do not present as CryptoMamba model output.")
+    p_last = float(prediction["last_close"])
+    p_pred = float(prediction["predicted_close"])
+    move = pct(p_pred, p_last)
+    inference_type = str(prediction.get("inference_type", "live"))
 
-        s1, s2 = st.columns(2)
-        with s1:
-            st.markdown(f"<div class='card'><div class='label'>Vanilla signal</div><div class='number'>{action_html(prediction['vanilla_action'])}</div></div>", unsafe_allow_html=True)
-        with s2:
-            st.markdown(f"<div class='card'><div class='label'>Smart signal</div><div class='number'>{action_html(prediction['smart_action'], float(prediction.get('smart_pct', 0) or 0))}</div></div>", unsafe_allow_html=True)
+    st.markdown("#### Kết quả")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Giá đóng cửa gần nhất", money(p_last))
+    m2.metric("Dự đoán Close ngày kế", money(p_pred), f"{move:+.2f}%")
+    m3.metric("Nguồn", f"{prediction.get('model_id', 'cmamba_v')} · {inference_type}")
+    st.caption(
+        "⚠️ Đây chỉ là dự đoán giá ĐÓNG CỬA (point forecast). Model không dự đoán "
+        "dao động trong ngày (high/low/đường đi của giá)."
+    )
 
-        st.plotly_chart(candle_chart(last_14, "Last 14 candles + next-day prediction", prediction), use_container_width=True, config=CHART_CONFIG)
-        with st.expander("Response", expanded=False):
-            st.json(prediction)
-    else:
-        if inference_mode == "Live Model API" and not api_url:
-            st.info("Paste Colab API URL, then Check API / Run prediction.")
-        else:
-            st.info("Run prediction to create a result.")
+    if inference_type not in ("live", "offline"):
+        st.warning("Kết quả không phải từ model thật — không dùng làm bằng chứng nghiên cứu.")
+    if out_of_dist:
+        st.caption(
+            "⚠️ Input ngoài phạm vi huấn luyện — demo định tính, không phải bằng chứng nghiên cứu."
+        )
+
+    g1, g2 = st.columns(2)
+    with g1:
+        st.markdown(
+            f"<div class='card'><div class='label'>Vanilla signal</div>"
+            f"<div class='number'>{action_html(prediction['vanilla_action'])}</div></div>",
+            unsafe_allow_html=True,
+        )
+    with g2:
+        st.markdown(
+            f"<div class='card'><div class='label'>Smart signal</div>"
+            f"<div class='number'>{action_html(prediction['smart_action'], float(prediction.get('smart_pct', 0) or 0))}</div></div>",
+            unsafe_allow_html=True,
+        )
+
+    st.plotly_chart(
+        candle_chart(window, f"{MODEL_WINDOW_SIZE} nến + điểm dự đoán", prediction),
+        use_container_width=True,
+        config=CHART_CONFIG,
+    )
+    with st.expander("Response", expanded=False):
+        st.json(prediction)

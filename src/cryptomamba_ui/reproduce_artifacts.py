@@ -85,6 +85,7 @@ class ReproduceArtifacts:
     trading_replay_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     baseline_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     forecast_predictions: pd.DataFrame = field(default_factory=pd.DataFrame)
+    baseline_predictions: pd.DataFrame = field(default_factory=pd.DataFrame)
     model_selection: dict[str, Any] = field(default_factory=dict)
     inference_fixture: dict[str, Any] = field(default_factory=dict)
     artifact_validation: dict[str, Any] = field(default_factory=dict)
@@ -102,6 +103,7 @@ def load_reproduce_artifacts(
     replay = _read_csv(evaluation_dir / "trading_replay_metrics.csv", errors)
     baseline = _read_csv(evaluation_dir / "baseline_metrics.csv", errors)
     predictions = _read_csv(evaluation_dir / "forecast_predictions.csv", errors)
+    baseline_predictions = _read_csv_optional(evaluation_dir / "baseline_predictions.csv")
     model_selection = _read_json(evaluation_dir / "model_selection.json", errors)
     inference_fixture = _read_json(evaluation_dir / "inference_fixture.json", errors)
     artifact_validation = _read_json(provenance_dir / "artifact_validation.json", errors)
@@ -162,6 +164,7 @@ def load_reproduce_artifacts(
         trading_replay_metrics=replay,
         baseline_metrics=baseline,
         forecast_predictions=predictions,
+        baseline_predictions=baseline_predictions,
         model_selection=model_selection,
         inference_fixture=inference_fixture,
         artifact_validation=artifact_validation,
@@ -178,6 +181,16 @@ def _read_csv(path: Path, errors: list[str]) -> pd.DataFrame:
         return pd.read_csv(path)
     except (OSError, UnicodeDecodeError, pd.errors.EmptyDataError, pd.errors.ParserError) as exc:
         errors.append(f"Cannot parse {path.name}: {exc}")
+        return pd.DataFrame()
+
+
+def _read_csv_optional(path: Path) -> pd.DataFrame:
+    """Read a supplementary CSV. Missing/unreadable file is not an error (returns empty)."""
+    if not path.is_file():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except (OSError, UnicodeDecodeError, pd.errors.EmptyDataError, pd.errors.ParserError):
         return pd.DataFrame()
 
 
