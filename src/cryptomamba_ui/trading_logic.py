@@ -4,8 +4,6 @@ from typing import Any
 
 import pandas as pd
 
-from src.cryptomamba_ui.data import normalize_candles
-
 
 def pct(predicted: float, current: float) -> float:
     if current == 0:
@@ -33,27 +31,6 @@ def smart_signal(current: float, predicted: float, risk_pct: float) -> tuple[str
     if current > predicted - band:
         return "buy", round(max(0.0, min(100.0, (predicted - current) / band * 100)), 1)
     return "buy", 100.0
-
-
-def mock_predict(df: pd.DataFrame, current_price: float, bias_pct: float, risk: float, prediction_date: str) -> dict[str, Any]:
-    candles = normalize_candles(df)
-    closes = candles["close"].astype(float)
-    momentum_pct = ((closes.iloc[-1] / closes.iloc[-7]) - 1) * 100 if len(closes) >= 7 and closes.iloc[-7] else 0.0
-    dampened = max(-3.0, min(3.0, momentum_pct * 0.35))
-    predicted = current_price * (1 + (bias_pct + dampened) / 100)
-    smart_action, smart_pct = smart_signal(current_price, predicted, risk)
-    return {
-        "model_id": "demo_mock_no_checkpoint",
-        "inference_type": "mock",
-        "prediction_date": prediction_date,
-        "last_close": round(current_price, 2),
-        "predicted_close": round(predicted, 2),
-        "predicted_change_pct": round(pct(predicted, current_price), 3),
-        "vanilla_action": vanilla_signal(current_price, predicted),
-        "smart_action": smart_action,
-        "smart_pct": smart_pct,
-        "note": "Demo mock only. No CryptoMamba checkpoint is loaded.",
-    }
 
 
 def simulate_trade(current: float, predicted: float, capital: float, btc: float, risk: float, realized_price: float) -> pd.DataFrame:
