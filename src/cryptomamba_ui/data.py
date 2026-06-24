@@ -316,6 +316,15 @@ def is_out_of_distribution(window: pd.DataFrame) -> bool:
     return last_date >= pd.to_datetime(MODEL_TRAIN_HORIZON)
 
 
+def window_from_candles(candles: list[dict[str, Any]]) -> pd.DataFrame:
+    """Rebuild the normalized input-window DataFrame from artifact payload candles.
+
+    Lets the offline view chart the frozen prediction against ITS OWN window, not
+    the current UI dataset (which need not match the frozen fixture).
+    """
+    return normalize_candles(pd.DataFrame(candles))
+
+
 def model_tensor_preview(source_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Build a UI preview of the real cmamba_v feature tensor contract.
 
