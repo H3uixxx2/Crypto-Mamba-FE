@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -9,11 +11,14 @@ from src.cryptomamba_ui.data import (
     MODEL_TRAIN_HORIZON,
     MODEL_WINDOW_SIZE,
     CandleDataError,
+    OfflinePredictionError,
     build_predict_payload,
     is_out_of_distribution,
+    load_offline_prediction,
     normalize_candles,
     prediction_date_bounds,
     select_window,
+    window_from_candles,
 )
 from src.cryptomamba_ui.trading_logic import pct
 from src.cryptomamba_ui.ui import action_html, money, stat_card
@@ -25,6 +30,7 @@ def render_predict_page(
     source_detail: str,
     api_url: str,
     risk: float,
+    offline_path: Path,
 ) -> None:
     st.markdown("### 3. Predict")
     st.caption(
@@ -140,10 +146,24 @@ def render_predict_page(
 
     # ── 3. Kết quả ──────────────────────────────────────────────────────────────
     prediction = st.session_state.get("prediction")
-    if not prediction:
+    if prediction:
+        _render_prediction_result(window, prediction, out_of_dist=out_of_dist)
+    else:
         st.info("Dán Colab API URL, chọn ngày dự đoán, rồi bấm Run prediction.")
-        return
 
+    # ── 4. Backup offline (defense-day fallback) ─────────────────────────────────
+    _render_offline_backup(offline_path)
+
+
+def _render_prediction_result(
+    window: pd.DataFrame, prediction: dict, *, out_of_dist: bool
+) -> None:
+    """Render a prediction result. Shared by the live and offline paths.
+
+    `prediction` must carry the live API response shape (last_close/predicted_close/
+    prediction_date/vanilla_action/smart_action at top level). `inference_type`
+    drives the source label; only `live`/`offline` are trusted as real-model output.
+    """
     p_last = float(prediction["last_close"])
     p_pred = float(prediction["predicted_close"])
     move = pct(p_pred, p_last)
@@ -187,3 +207,46 @@ def render_predict_page(
     )
     with st.expander("Response", expanded=False):
         st.json(prediction)
+
+
+def _render_offline_backup(offline_path: Path) -> None:
+    """Load + render the frozen defense-day prediction, labeled `offline`.
+
+    Used when the live Colab API is unavailable. Degrades to an explicit NOT READY
+    state if the artifact is missing/invalid — never crashes, never fakes a value.
+    """
+    st.divider()
+    st.markdown("#### Backup offline (defense-day)")
+    st.caption(
+        "Dự đoán đã ĐÓNG BĂNG từ artifact `offline_prediction.json`, dùng khi không có "
+        "Colab API. KHÔNG phải inference realtime — luôn gán nhãn `offline`."
+    )
+
+    if st.button("Nạp bản backup offline"):
+        try:
+            st.session_state.offline_prediction = load_offline_prediction(offline_path)
+        except OfflinePredictionError as exc:
+            st.session_state.offline_prediction = None
+            st.error(f"NOT READY — bản backup offline không khả dụng: {exc}")
+
+    bundle = st.session_state.get("offline_prediction")
+    if not bundle:
+        return
+
+    prov = bundle["provenance"]
+    st.warning(prov["warning"])
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        stat_card("Checkpoint SHA-256", (prov["checkpoint_sha256"] or "—")[:12] + "…", "frozen")
+    with c2:
+        stat_card("Source commit", (prov["source_commit"] or "—")[:12], "backend")
+    with c3:
+        stat_card("Generated (UTC)", prov["generated_at_utc"] or "—", "freeze time")
+
+    try:
+        window = window_from_candles(bundle["window_candles"])
+    except CandleDataError as exc:
+        st.error(f"NOT READY — cửa sổ input trong artifact không hợp lệ: {exc}")
+        return
+
+    _render_prediction_result(window, bundle["prediction"], out_of_dist=False)
