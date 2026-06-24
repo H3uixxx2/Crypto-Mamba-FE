@@ -11,14 +11,16 @@ from src.cryptomamba_ui.data import (
     MODEL_TRAIN_HORIZON,
     MODEL_WINDOW_SIZE,
     CandleDataError,
-    OfflinePredictionError,
     build_predict_payload,
     is_out_of_distribution,
-    load_offline_prediction,
     normalize_candles,
     prediction_date_bounds,
     select_window,
     window_from_candles,
+)
+from src.cryptomamba_ui.predict_artifacts import (
+    OfflinePredictionError,
+    load_offline_prediction,
 )
 from src.cryptomamba_ui.trading_logic import pct
 from src.cryptomamba_ui.ui import action_html, money, stat_card

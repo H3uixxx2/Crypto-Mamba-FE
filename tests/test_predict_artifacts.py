@@ -5,11 +5,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.cryptomamba_ui.data import (
-    MODEL_WINDOW_SIZE,
+from src.cryptomamba_ui.data import MODEL_WINDOW_SIZE, window_from_candles
+from src.cryptomamba_ui.predict_artifacts import (
     OfflinePredictionError,
     load_offline_prediction,
-    window_from_candles,
 )
 
 
