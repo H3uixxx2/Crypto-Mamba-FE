@@ -209,6 +209,75 @@ def forecast_timeseries_chart(
     return fig
 
 
+def forecast_error_chart(
+    predictions: pd.DataFrame,
+    baseline_predictions: pd.DataFrame | None = None,
+    split: str = "test",
+    title: str = "Daily forecast error — CryptoMamba-v vs naive (test period)",
+) -> go.Figure:
+    """Absolute percentage error per day: |predicted - actual| / actual * 100.
+
+    Unlike the price overlay (where everything hugs the actual line at the $0-70K scale),
+    this surfaces the real day-to-day miss and lets CryptoMamba-v be compared directly with
+    the naive baseline. Spikes = big-miss days. The mean of each line is its MAPE.
+    """
+
+    def _ape(df: pd.DataFrame) -> pd.DataFrame:
+        d = df.copy()
+        d["_d"] = pd.to_datetime(d["prediction_date"], errors="coerce")
+        d = d.dropna(subset=["_d"]).sort_values("_d")
+        d["_ape"] = (d["predicted_close"] - d["target_close"]).abs() / d["target_close"] * 100.0
+        return d
+
+    cm = predictions[
+        (predictions["result_type"] == "retrained_checkpoint") & (predictions["split"] == split)
+    ]
+    if cm.empty:
+        return go.Figure()
+    cm = _ape(cm)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=cm["_d"], y=cm["_ape"], mode="lines", name="CryptoMamba-v",
+            line=dict(color="#dc2626", width=1.4),
+            hovertemplate="CryptoMamba-v<br>%{x|%Y-%m-%d}<br>error %{y:.2f}%<extra></extra>",
+        )
+    )
+    fig.add_hline(y=float(cm["_ape"].mean()), line=dict(color="#dc2626", width=1, dash="dot"))
+
+    if baseline_predictions is not None and not baseline_predictions.empty:
+        nv = baseline_predictions[
+            (baseline_predictions["model"] == "naive_persistence")
+            & (baseline_predictions["split"] == split)
+        ]
+        if not nv.empty:
+            nv = _ape(nv)
+            fig.add_trace(
+                go.Scatter(
+                    x=nv["_d"], y=nv["_ape"], mode="lines", name="Naive (yesterday's close)",
+                    line=dict(color="#f59e0b", width=1.4),
+                    hovertemplate="Naive<br>%{x|%Y-%m-%d}<br>error %{y:.2f}%<extra></extra>",
+                )
+            )
+            fig.add_hline(y=float(nv["_ape"].mean()), line=dict(color="#f59e0b", width=1, dash="dot"))
+
+    fig.update_layout(
+        height=420,
+        title=title,
+        margin=dict(l=12, r=12, t=56, b=16),
+        yaxis_title="Absolute % error  (|pred − actual| / actual)",
+        xaxis_title="Date",
+        dragmode=False,
+        hovermode="x unified",
+        xaxis=dict(rangeslider=dict(visible=False), fixedrange=True),
+        yaxis=dict(fixedrange=True, rangemode="tozero"),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
 def candle_chart(df: pd.DataFrame, title: str, prediction: dict | None = None, height: int = 430) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(

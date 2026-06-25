@@ -7,6 +7,7 @@ import streamlit as st
 
 from src.cryptomamba_ui.charts import (
     CHART_CONFIG,
+    forecast_error_chart,
     forecast_prediction_chart,
     forecast_timeseries_chart,
 )
@@ -120,24 +121,42 @@ def _render_forecast(artifacts: ReproduceArtifacts) -> None:
     )
     predictions = artifacts.forecast_predictions
     if not predictions.empty:
-        # Paper-style figure: predicted close hugging the actual close over the full
-        # train/val/test timeline (mirrors the CryptoMamba paper prediction plot).
+        # Daily % error is the discriminating view — at the $0-70K price scale the predicted and
+        # actual lines (and even naive) overlap, so the real day-to-day miss only shows as error.
         st.plotly_chart(
-            forecast_timeseries_chart(
+            forecast_error_chart(
                 predictions,
-                result_type="retrained_checkpoint",
-                title="Predicted vs actual BTC close — paper split (train / val / test)",
+                baseline_predictions=artifacts.baseline_predictions,
+                split="test",
+                title="Daily forecast error — CryptoMamba-v vs naive (test period)",
             ),
             use_container_width=True,
             config=CHART_CONFIG,
         )
         st.caption(
-            "Paper-style reproduction plot: the blue line is the actual BTC close; the predicted "
-            "close is overlaid coloured by split (red train · green val · magenta test). The "
-            "prediction line tracks the actual line across the whole timeline — the visual proof "
-            "the retrain reproduced the paper model."
+            "Absolute % error per day (dotted line = each model's MAPE). On the raw price chart "
+            "everything overlaps because day-to-day moves are tiny vs the $30–70K level — so the "
+            "real signal is here. CryptoMamba-v (red, MAPE ~2.05%) sits marginally **above** naive "
+            "(amber, ~1.97%): on squared/absolute error they are statistically tied. CryptoMamba-v's "
+            "edge is **directional accuracy** (56.86% vs naive 0%), not price error — see the Baseline tab."
         )
-        with st.expander("Extra view — predicted-vs-actual parity (test, scatter)"):
+        with st.expander("Paper-style overlay — predicted vs actual close over the full split"):
+            st.plotly_chart(
+                forecast_timeseries_chart(
+                    predictions,
+                    result_type="retrained_checkpoint",
+                    title="Predicted vs actual BTC close — paper split (train / val / test)",
+                ),
+                use_container_width=True,
+                config=CHART_CONFIG,
+            )
+            st.caption(
+                "Reproduction of the paper's prediction figure: actual close (blue) with predicted "
+                "close coloured by split (red train · green val · magenta test). The prediction line "
+                "tracks the actual line — faithful to the paper, but by design the lines overlap, so "
+                "use the error chart above to actually compare models."
+            )
+        with st.expander("Parity scatter — predicted vs actual (test)"):
             st.plotly_chart(
                 forecast_prediction_chart(
                     predictions,
@@ -149,9 +168,8 @@ def _render_forecast(artifacts: ReproduceArtifacts) -> None:
                 config=CHART_CONFIG,
             )
             st.caption(
-                "Each dot is one test day: predicted close (y) vs actual close (x); dots on the "
-                "dashed y = x line mean accurate. Author (blue) and our retrained (red) clouds "
-                "overlap (~0.22% mean price diff). Naive baseline (amber) shown for reference."
+                "Each dot is one test day: predicted (y) vs actual (x); dots on y = x mean accurate. "
+                "Author (blue) and retrained (red) clouds overlap (~0.22% mean price diff)."
             )
 
     st.dataframe(forecast_comparison_table(artifacts.forecast_metrics), hide_index=True, width="stretch")
