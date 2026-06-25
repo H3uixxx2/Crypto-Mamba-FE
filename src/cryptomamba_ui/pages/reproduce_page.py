@@ -5,7 +5,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.cryptomamba_ui.charts import CHART_CONFIG, forecast_prediction_chart
+from src.cryptomamba_ui.charts import (
+    CHART_CONFIG,
+    forecast_prediction_chart,
+    forecast_timeseries_chart,
+)
 from src.cryptomamba_ui.reproduce_artifacts import (
     MANDATORY_BASELINES,
     ReproduceArtifacts,
@@ -116,23 +120,39 @@ def _render_forecast(artifacts: ReproduceArtifacts) -> None:
     )
     predictions = artifacts.forecast_predictions
     if not predictions.empty:
+        # Paper-style figure: predicted close hugging the actual close over the full
+        # train/val/test timeline (mirrors the CryptoMamba paper prediction plot).
         st.plotly_chart(
-            forecast_prediction_chart(
+            forecast_timeseries_chart(
                 predictions,
-                "test",
-                "Test period — predicted vs actual BTC close (350 days)",
-                baseline=artifacts.baseline_predictions,
+                result_type="retrained_checkpoint",
+                title="Predicted vs actual BTC close — paper split (train / val / test)",
             ),
             use_container_width=True,
             config=CHART_CONFIG,
         )
         st.caption(
-            "Each dot is one day: predicted close (y) against the actual close (x). "
-            "Dots sit on the dashed y = x line, so predictions match reality. "
-            "The author's (blue) and our retrained (red) clouds overlap — visual proof the retrain reproduced the paper model "
-            "(they differ by only ~0.22% of price on average). The naive baseline (amber, = yesterday's close) "
-            "is shown for reference; on RMSE it is actually marginally tighter — see the Baseline tab."
+            "Paper-style reproduction plot: the blue line is the actual BTC close; the predicted "
+            "close is overlaid coloured by split (red train · green val · magenta test). The "
+            "prediction line tracks the actual line across the whole timeline — the visual proof "
+            "the retrain reproduced the paper model."
         )
+        with st.expander("Extra view — predicted-vs-actual parity (test, scatter)"):
+            st.plotly_chart(
+                forecast_prediction_chart(
+                    predictions,
+                    "test",
+                    "Test period — predicted vs actual BTC close (350 days)",
+                    baseline=artifacts.baseline_predictions,
+                ),
+                use_container_width=True,
+                config=CHART_CONFIG,
+            )
+            st.caption(
+                "Each dot is one test day: predicted close (y) vs actual close (x); dots on the "
+                "dashed y = x line mean accurate. Author (blue) and our retrained (red) clouds "
+                "overlap (~0.22% mean price diff). Naive baseline (amber) shown for reference."
+            )
 
     st.dataframe(forecast_comparison_table(artifacts.forecast_metrics), hide_index=True, width="stretch")
     st.success("Retrained checkpoint passes the agreed 5% forecast-metric tolerance.")

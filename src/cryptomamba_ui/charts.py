@@ -153,6 +153,62 @@ def forecast_prediction_chart(
     return fig
 
 
+def forecast_timeseries_chart(
+    predictions: pd.DataFrame,
+    result_type: str = "retrained_checkpoint",
+    title: str = "Predicted vs actual BTC close — paper split (train / val / test)",
+) -> go.Figure:
+    """Paper-style time series: actual close (blue) overlaid with the model's predicted
+    close colored by split (train / val / test), over the full paper timeline.
+
+    Mirrors the CryptoMamba paper's prediction figure (scripts/evaluation.py pred plot):
+    the predicted line hugging the actual line is the visual proof of reproduction.
+    """
+    part = predictions[predictions["result_type"] == result_type].copy()
+    if part.empty:
+        return go.Figure()
+    part["_d"] = pd.to_datetime(part["prediction_date"], errors="coerce")
+    part = part.dropna(subset=["_d"]).sort_values("_d")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=part["_d"], y=part["target_close"], mode="lines", name="Actual close",
+            line=dict(color="#2563eb", width=1.9),
+            hovertemplate="Actual<br>%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+        )
+    )
+    for split_name, label, color in (
+        ("train", "Predicted · Train", "#dc2626"),
+        ("val", "Predicted · Val", "#16a34a"),
+        ("test", "Predicted · Test", "#db2777"),
+    ):
+        seg = part[part["split"] == split_name]
+        if seg.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=seg["_d"], y=seg["predicted_close"], mode="lines", name=label,
+                line=dict(color=color, width=1.4),
+                hovertemplate=f"{label}<br>%{{x|%Y-%m-%d}}<br>$%{{y:,.0f}}<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        height=460,
+        title=title,
+        margin=dict(l=12, r=12, t=56, b=16),
+        yaxis_title="BTC close (USD)",
+        xaxis_title="Date",
+        dragmode=False,
+        hovermode="x unified",
+        xaxis=dict(rangeslider=dict(visible=False), fixedrange=True),
+        yaxis=dict(fixedrange=True),
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig
+
+
 def candle_chart(df: pd.DataFrame, title: str, prediction: dict | None = None, height: int = 430) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(
