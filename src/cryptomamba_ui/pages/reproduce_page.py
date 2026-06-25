@@ -6,7 +6,11 @@ import pandas as pd
 import streamlit as st
 
 from src.cryptomamba_ui.charts import CHART_CONFIG, forecast_prediction_chart
-from src.cryptomamba_ui.reproduce_artifacts import ReproduceArtifacts, load_reproduce_artifacts
+from src.cryptomamba_ui.reproduce_artifacts import (
+    MANDATORY_BASELINES,
+    ReproduceArtifacts,
+    load_reproduce_artifacts,
+)
 
 
 def render_reproduce_page(
@@ -30,6 +34,13 @@ def render_reproduce_page(
 
     forecast_pass = artifacts.forecast_status == "PASS"
     baseline_full = artifacts.baseline_status not in ("PARTIAL", "MISSING")
+    _present = artifacts.baseline_models_present
+    _pending = sorted(MANDATORY_BASELINES - set(_present))
+    baseline_card_msg = (
+        "Reference models to beat. "
+        + (f"Done: {', '.join(_present)}." if _present else "None done yet.")
+        + (f" Pending (GPU): {', '.join(_pending)}." if _pending else " All five present.")
+    )
 
     # Plain-language verdict — what this whole screen is proving, in one sentence.
     if forecast_pass:
@@ -59,7 +70,7 @@ def render_reproduce_page(
                      "ok")
     with cards[3]:
         _status_card("4 · Baseline comparison", artifacts.baseline_status,
-                     "Reference models to beat. Only the naive baseline is done; LSTM / GRU / iTransformer are pending.",
+                     baseline_card_msg,
                      "ok" if baseline_full else "warn")
 
     selection = artifacts.model_selection
@@ -254,47 +265,101 @@ def trading_drawdown_comparison_table(replay: pd.DataFrame, split: str) -> pd.Da
     return pd.DataFrame(rows)
 
 
-def _render_baseline(artifacts: ReproduceArtifacts) -> None:
-    st.markdown(
-        "**How to read:** Baselines are simple reference models evaluated on the same test split. "
-        "CryptoMamba-v is meant to beat them. Lower RMSE / MAE / MAPE is better."
-    )
-    baseline = artifacts.baseline_metrics[artifacts.baseline_metrics["split"] == "test"][
-        ["model", "samples", "RMSE", "MAE", "MAPE_pct", "protocol"]
-    ].copy()
-    baseline = baseline.rename(
-        columns={
-            "model": "Model",
-            "samples": "Samples",
-            "MAPE_pct": "MAPE %",
-            "protocol": "Protocol",
-        }
-    )
-    st.dataframe(
-        baseline.style.format({"RMSE": "{:,.3f}", "MAE": "{:,.3f}", "MAPE %": "{:.3f}"}),
-        hide_index=True,
-        width="stretch",
+def baseline_comparison_table(comparison: pd.DataFrame) -> pd.DataFrame:
+    cols = [c for c in ["model", "RMSE", "MAE", "MAPE_pct", "paper_RMSE", "RMSE_gap_pct"] if c in comparison.columns]
+    return comparison[cols].rename(
+        columns={"model": "Model", "MAPE_pct": "MAPE %", "paper_RMSE": "Paper RMSE", "RMSE_gap_pct": "vs paper %"}
     )
 
-    retrained_rmse = float(
-        artifacts.forecast_metrics.loc[
-            artifacts.forecast_metrics["result_type"] == "retrained_checkpoint",
-            "RMSE",
-        ].iloc[0]
+
+def significance_table(significance: pd.DataFrame) -> pd.DataFrame:
+    cols = [
+        c for c in ["comparison", "cm_directional_acc_pct", "baseline_directional_acc_pct",
+                    "dm_p_value", "wilcoxon_p_value", "conclusion"]
+        if c in significance.columns
+    ]
+    return significance[cols].rename(
+        columns={
+            "comparison": "Comparison",
+            "cm_directional_acc_pct": "CM-v dir-acc %",
+            "baseline_directional_acc_pct": "Baseline dir-acc %",
+            "dm_p_value": "DM p",
+            "wilcoxon_p_value": "Wilcoxon p",
+            "conclusion": "Conclusion",
+        }
     )
-    naive_rmse = float(
-        artifacts.baseline_metrics.loc[
-            (artifacts.baseline_metrics["model"] == "naive_persistence")
-            & (artifacts.baseline_metrics["split"] == "test"),
-            "RMSE",
-        ].iloc[0]
+
+
+def _render_baseline(artifacts: ReproduceArtifacts) -> None:
+    st.markdown(
+        "**How to read:** Baselines are reference models evaluated on the same test split. "
+        "CryptoMamba-v is meant to beat them — lower RMSE / MAE / MAPE is better, and directional "
+        "accuracy (predicting up vs down) is what matters most for trading."
     )
-    if naive_rmse < retrained_rmse:
-        st.warning(
-            f"Naive persistence has lower test RMSE ({naive_rmse:,.3f}) than the retrained checkpoint "
-            f"({retrained_rmse:,.3f}). This result must not be hidden."
+
+    comparison = artifacts.baseline_comparison
+    if not comparison.empty:
+        st.dataframe(
+            baseline_comparison_table(comparison).style.format(
+                {"RMSE": "{:,.3f}", "MAE": "{:,.3f}", "MAPE %": "{:.3f}",
+                 "Paper RMSE": "{:,.1f}", "vs paper %": "{:.2f}"},
+                na_rep="—",
+            ),
+            hide_index=True,
+            width="stretch",
         )
-    st.info("Baseline scope is PARTIAL: only naive persistence is currently available.")
+    else:
+        baseline = artifacts.baseline_metrics[artifacts.baseline_metrics["split"] == "test"][
+            ["model", "samples", "RMSE", "MAE", "MAPE_pct", "protocol"]
+        ].rename(columns={"model": "Model", "samples": "Samples", "MAPE_pct": "MAPE %", "protocol": "Protocol"})
+        st.dataframe(
+            baseline.style.format({"RMSE": "{:,.3f}", "MAE": "{:,.3f}", "MAPE %": "{:.3f}"}),
+            hide_index=True,
+            width="stretch",
+        )
+
+    significance = artifacts.significance
+    if not significance.empty:
+        st.markdown(
+            "**Statistical significance — CryptoMamba-v vs each baseline (test split).** "
+            "Directional accuracy plus Diebold-Mariano / Wilcoxon p-values on squared error "
+            "(p < 0.05 = a significant difference)."
+        )
+        st.dataframe(
+            significance_table(significance).style.format(
+                {"CM-v dir-acc %": "{:.2f}", "Baseline dir-acc %": "{:.2f}",
+                 "DM p": "{:.4f}", "Wilcoxon p": "{:.4f}"},
+                na_rep="—",
+            ),
+            hide_index=True,
+            width="stretch",
+        )
+
+    retrained = artifacts.forecast_metrics.loc[
+        artifacts.forecast_metrics["result_type"] == "retrained_checkpoint", "RMSE"
+    ]
+    naive = artifacts.baseline_metrics.loc[
+        (artifacts.baseline_metrics["model"] == "naive_persistence")
+        & (artifacts.baseline_metrics["split"] == "test"),
+        "RMSE",
+    ]
+    if not retrained.empty and not naive.empty and float(naive.iloc[0]) < float(retrained.iloc[0]):
+        st.warning(
+            f"Naive persistence has lower test RMSE ({float(naive.iloc[0]):,.3f}) than the retrained "
+            f"checkpoint ({float(retrained.iloc[0]):,.3f}) — disclosed openly. CryptoMamba-v's edge is "
+            "directional accuracy + trading, not raw squared error (see the significance table)."
+        )
+
+    present = list(artifacts.baseline_models_present)
+    total = len(MANDATORY_BASELINES)
+    if artifacts.baseline_status == "COMPLETE":
+        st.success(f"Baseline scope COMPLETE: all {total} baselines present ({', '.join(present)}).")
+    else:
+        missing = sorted(MANDATORY_BASELINES - set(present))
+        st.info(
+            f"Baseline scope PARTIAL: {len(present)}/{total} present "
+            f"({', '.join(present) or 'none'}); pending (Colab GPU): {', '.join(missing)}."
+        )
 
 
 def _render_evidence(artifacts: ReproduceArtifacts, selected_checkpoint_path: Path) -> None:

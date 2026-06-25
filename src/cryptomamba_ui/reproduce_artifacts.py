@@ -49,6 +49,8 @@ REPLAY_COLUMNS = {
     "status",
 }
 BASELINE_COLUMNS = {"model", "split", "samples", "RMSE", "MAE", "MAPE_pct", "protocol"}
+# The full mandatory baseline set per the thesis proposal. COMPLETE only when all five are present.
+MANDATORY_BASELINES = {"naive_persistence", "arima", "lstm", "gru", "itransformer"}
 PREDICTION_COLUMNS = {
     "result_type",
     "model",
@@ -84,6 +86,9 @@ class ReproduceArtifacts:
     forecast_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     trading_replay_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
     baseline_metrics: pd.DataFrame = field(default_factory=pd.DataFrame)
+    baseline_comparison: pd.DataFrame = field(default_factory=pd.DataFrame)
+    significance: pd.DataFrame = field(default_factory=pd.DataFrame)
+    baseline_models_present: tuple[str, ...] = ()
     forecast_predictions: pd.DataFrame = field(default_factory=pd.DataFrame)
     baseline_predictions: pd.DataFrame = field(default_factory=pd.DataFrame)
     model_selection: dict[str, Any] = field(default_factory=dict)
@@ -102,6 +107,8 @@ def load_reproduce_artifacts(
     forecast = _read_csv(evaluation_dir / "forecast_metrics.csv", errors)
     replay = _read_csv(evaluation_dir / "trading_replay_metrics.csv", errors)
     baseline = _read_csv(evaluation_dir / "baseline_metrics.csv", errors)
+    baseline_comparison = _read_csv_optional(evaluation_dir / "baseline_metrics_comparison.csv")
+    significance = _read_csv_optional(evaluation_dir / "significance_tests.csv")
     predictions = _read_csv(evaluation_dir / "forecast_predictions.csv", errors)
     baseline_predictions = _read_csv_optional(evaluation_dir / "baseline_predictions.csv")
     model_selection = _read_json(evaluation_dir / "model_selection.json", errors)
@@ -113,7 +120,7 @@ def load_reproduce_artifacts(
 
     forecast_status = _validate_forecast(forecast, errors)
     replay_status = _validate_replay(replay, errors)
-    baseline_status = _validate_baseline(baseline, errors)
+    baseline_status, baseline_models_present = _validate_baseline(baseline, baseline_comparison, errors)
     _validate_predictions(predictions, errors)
     selected_hash = _validate_selection(
         model_selection,
@@ -163,6 +170,9 @@ def load_reproduce_artifacts(
         forecast_metrics=forecast,
         trading_replay_metrics=replay,
         baseline_metrics=baseline,
+        baseline_comparison=baseline_comparison,
+        significance=significance,
+        baseline_models_present=baseline_models_present,
         forecast_predictions=predictions,
         baseline_predictions=baseline_predictions,
         model_selection=model_selection,
@@ -309,23 +319,36 @@ def _validate_replay(frame: pd.DataFrame, errors: list[str]) -> str:
     return "COMPLETE_WITH_RETRAINED_MISMATCH" if retrained_status.eq("NOT_MATCHED").any() else "VERIFIED"
 
 
-def _validate_baseline(frame: pd.DataFrame, errors: list[str]) -> str:
+def _validate_baseline(
+    frame: pd.DataFrame, comparison: pd.DataFrame, errors: list[str]
+) -> tuple[str, tuple[str, ...]]:
+    """Validate baseline_metrics.csv and derive COMPLETE/PARTIAL against the full mandatory set.
+
+    The mandatory baselines are {naive, arima, lstm, gru, itransformer}. Models are collected from
+    baseline_metrics.csv (test split) AND, when present, the unified baseline_metrics_comparison.csv
+    (which is where ARIMA / the neural baselines land). COMPLETE only when all five are present;
+    otherwise PARTIAL. Returns (status, present_mandatory_models).
+    """
     if not _validate_columns(frame, BASELINE_COLUMNS, "baseline_metrics.csv", errors):
-        return "NOT_READY"
+        return "NOT_READY", ()
     numeric_columns = ["samples", "RMSE", "MAE", "MAPE_pct"]
     numeric = frame[numeric_columns].apply(pd.to_numeric, errors="coerce")
     if numeric.isna().any().any() or not numeric.apply(lambda column: column.map(math.isfinite)).all().all():
         errors.append("baseline_metrics.csv contains non-finite numeric values")
-        return "NOT_READY"
+        return "NOT_READY", ()
     if (numeric < 0).any().any():
         errors.append("baseline_metrics.csv contains negative metrics")
-        return "NOT_READY"
+        return "NOT_READY", ()
     test_rows = frame[frame["split"] == "test"]
     if test_rows.empty:
         errors.append("baseline_metrics.csv has no test split")
-        return "NOT_READY"
+        return "NOT_READY", ()
     models = set(test_rows["model"].astype(str))
-    return "PARTIAL" if models == {"naive_persistence"} else "COMPLETE"
+    if not comparison.empty and "model" in comparison.columns:
+        models |= set(comparison["model"].astype(str))
+    present = tuple(sorted(MANDATORY_BASELINES & models))
+    status = "COMPLETE" if MANDATORY_BASELINES.issubset(models) else "PARTIAL"
+    return status, present
 
 
 def _validate_predictions(frame: pd.DataFrame, errors: list[str]) -> None:
