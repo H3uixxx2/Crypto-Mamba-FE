@@ -173,6 +173,66 @@ class ReproduceArtifactsTest(unittest.TestCase):
             self.assertEqual(bundle.status, "NOT_READY")
             self.assertTrue(any("prediction_date" in error and "source_commit" in error for error in bundle.errors))
 
+    def test_baseline_partial_lists_present_models_when_only_naive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluation_dir, provenance_dir, checkpoint_path = self._write_valid_bundle(Path(tmp))
+
+            bundle = load_reproduce_artifacts(evaluation_dir, provenance_dir, checkpoint_path)
+
+            self.assertEqual(bundle.baseline_status, "PARTIAL")
+            self.assertEqual(bundle.baseline_models_present, ("naive_persistence",))
+            self.assertTrue(bundle.baseline_comparison.empty)
+            self.assertTrue(bundle.significance.empty)
+
+    def test_baseline_partial_with_two_of_five_from_comparison(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluation_dir, provenance_dir, checkpoint_path = self._write_valid_bundle(Path(tmp))
+            self._write_comparison(evaluation_dir, ["naive_persistence", "arima"])
+            self._write_significance(evaluation_dir)
+
+            bundle = load_reproduce_artifacts(evaluation_dir, provenance_dir, checkpoint_path)
+
+            # ARIMA present but not all five -> still PARTIAL (the previous logic wrongly returned COMPLETE)
+            self.assertEqual(bundle.baseline_status, "PARTIAL")
+            self.assertEqual(bundle.baseline_models_present, ("arima", "naive_persistence"))
+            self.assertFalse(bundle.baseline_comparison.empty)
+            self.assertFalse(bundle.significance.empty)
+            self.assertEqual(bundle.status, "READY")  # PARTIAL baseline still allows READY
+
+    def test_baseline_complete_when_all_five_present(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            evaluation_dir, provenance_dir, checkpoint_path = self._write_valid_bundle(Path(tmp))
+            self._write_comparison(
+                evaluation_dir, ["naive_persistence", "arima", "lstm", "gru", "itransformer"]
+            )
+
+            bundle = load_reproduce_artifacts(evaluation_dir, provenance_dir, checkpoint_path)
+
+            self.assertEqual(bundle.baseline_status, "COMPLETE")
+            self.assertEqual(
+                set(bundle.baseline_models_present),
+                {"naive_persistence", "arima", "lstm", "gru", "itransformer"},
+            )
+
+    @staticmethod
+    def _write_comparison(evaluation_dir: Path, models: list[str]) -> None:
+        rows = [
+            {"model": m, "split": "test", "samples": 350, "RMSE": 1600.0 + i, "MAE": 1100.0,
+             "MAPE_pct": 2.0, "paper_RMSE": 1600.0, "RMSE_gap_pct": 0.5}
+            for i, m in enumerate(models)
+        ]
+        pd.DataFrame(rows).to_csv(evaluation_dir / "baseline_metrics_comparison.csv", index=False)
+
+    @staticmethod
+    def _write_significance(evaluation_dir: Path) -> None:
+        pd.DataFrame(
+            [
+                {"comparison": "CryptoMamba-v vs arima", "samples": 350,
+                 "cm_directional_acc_pct": 56.86, "baseline_directional_acc_pct": 51.14,
+                 "dm_p_value": 0.1479, "wilcoxon_p_value": 0.0758, "conclusion": "not_significant"}
+            ]
+        ).to_csv(evaluation_dir / "significance_tests.csv", index=False)
+
     @staticmethod
     def _write_valid_bundle(root: Path) -> tuple[Path, Path, Path]:
         evaluation_dir = root / "output/evaluation"
