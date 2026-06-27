@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 from src.cryptomamba_ui.data import CandleDataError
 from src.cryptomamba_ui.dataset_service import DatasetBundle, DatasetService
-from src.cryptomamba_ui.pages.data_page import render_data_page, render_data_source_controls, render_empty_upload, render_invalid_upload_page
+from src.cryptomamba_ui.pages.data_page import render_data_page, render_data_source_controls, render_data_source_indicator, render_empty_upload, render_invalid_upload_page
 from src.cryptomamba_ui.pages.plan_page import render_plan_page
 from src.cryptomamba_ui.pages.predict_page import render_predict_page
 from src.cryptomamba_ui.pages.reproduce_page import render_reproduce_page
@@ -85,10 +85,10 @@ def reproduce_page() -> None:
 
 
 def predict_page() -> None:
-    # Phase 1 data-source control, reused here so the dataset can be chosen on the
-    # Predict screen too. Shared `data_mode`/upload state keeps it consistent with
-    # the Data and Trading screens (single source of truth).
-    data_mode, uploaded = render_data_source_controls()
+    # Predict inherits the dataset chosen on the Data screen (shared session state) and
+    # only shows a read-only indicator — no duplicate radio/uploader here. Data flows
+    # one way: Data screen selects, Predict consumes.
+    data_mode, uploaded = render_data_source_indicator()
     try:
         dataset_ready, dataset = load_selected_dataset(data_mode, uploaded)
     except (CandleDataError, pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as exc:

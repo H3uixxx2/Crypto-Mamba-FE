@@ -71,6 +71,31 @@ def render_data_source_controls() -> tuple[str, Any | None]:
     return data_mode, uploaded
 
 
+def render_data_source_indicator() -> tuple[str, Any | None]:
+    """Read-only mirror of the dataset chosen on the Data screen.
+
+    Unlike ``render_data_source_controls`` this renders no radio/uploader: downstream
+    screens (Predict) inherit the active dataset from shared session state instead of
+    re-asking for it. Returns the same ``(data_mode, uploaded)`` tuple so callers can
+    load the dataset identically.
+    """
+    if st.session_state.get("data_mode") == "Paper sample":
+        st.session_state["data_mode"] = "Paper dataset"
+    data_mode = str(st.session_state.get("data_mode", "Paper dataset"))
+
+    uploaded = None
+    if data_mode == "Upload CSV":
+        retained_name = retained_uploaded_csv_name()
+        if retained_name:
+            uploaded = remember_uploaded_csv(None)
+            st.caption(f"Dataset: **Upload CSV** — `{retained_name}` · chosen on the **Data** screen.")
+        else:
+            st.caption("Dataset: **Upload CSV** selected but no file uploaded — upload it on the **Data** screen.")
+    else:
+        st.caption("Dataset: **Paper dataset** · chosen on the **Data** screen.")
+    return data_mode, uploaded
+
+
 def render_empty_upload(dataset: DatasetBundle) -> None:
     st.markdown("### 1. Data")
     st.caption(f"Dataset source: {dataset.source_label}. {dataset.source_detail}")
