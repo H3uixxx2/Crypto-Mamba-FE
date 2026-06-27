@@ -249,9 +249,13 @@ def _largest_forecast_gap(result: pd.Series) -> float:
 def _render_replay(artifacts: ReproduceArtifacts) -> None:
     replay = artifacts.trading_replay_metrics
     st.markdown(
-        "**How to read:** Each row is one trading strategy. "
-        "Paper is the published balance, Official verifies the replay pipeline, "
-        "and Our retrain shows the balance produced by the newly trained checkpoint."
+        "**How to read — three bars per strategy:** "
+        "**Paper** = the balance printed in the paper. "
+        "**Official** = the authors' released checkpoint run through *our* pipeline in Phase 2 "
+        "(a real run — its numbers differ slightly from Paper, e.g. 124.90 vs 124.09). "
+        "**Our retrain** = the checkpoint we trained ourselves. "
+        "Official ≈ Paper is the proof our pipeline is faithful, so any gap in *Our retrain* is the "
+        "model, not buggy code."
     )
     validation_tab, test_tab = st.tabs(["Validation period", "Test period"])
     for tab, split in ((validation_tab, "val"), (test_tab, "test")):
@@ -270,6 +274,10 @@ def _render_replay(artifacts: ReproduceArtifacts) -> None:
                     ),
                     use_container_width=True,
                     config=CHART_CONFIG,
+                )
+                st.caption(
+                    "Paper (published) vs Official (authors' checkpoint via our pipeline, Phase 2) "
+                    "vs Our retrain (our checkpoint). Paper ≈ Official ⇒ pipeline verified."
                 )
             st.dataframe(
                 trading_balance_comparison_table(replay, split),
