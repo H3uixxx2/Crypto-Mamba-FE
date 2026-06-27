@@ -330,3 +330,138 @@ def roi_chart(sim_df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(height=320, margin=dict(l=12, r=12, t=28, b=12), yaxis_title="ROI (%)", showlegend=False)
     return fig
+
+
+# --- Model-comparison charts (demo-friendly benchmark views) ---
+
+_HIGHLIGHT_COLOR = "#1e3a8a"   # CryptoMamba-v (the model under test)
+_NEUTRAL_COLOR = "#cbd5e1"     # reference baselines
+
+
+def leaderboard_bar_chart(
+    labels: list[str],
+    values: list[float],
+    *,
+    value_label: str,
+    lower_is_better: bool,
+    highlight_substr: str = "CryptoMamba",
+    value_fmt: str = "{:,.1f}",
+    height: int = 360,
+) -> go.Figure:
+    """Ranked bar chart (leaderboard). Best bar first; CryptoMamba-v highlighted."""
+    order = sorted(range(len(values)), key=lambda i: values[i], reverse=not lower_is_better)
+    sorted_labels = [labels[i] for i in order]
+    sorted_values = [values[i] for i in order]
+    colors = [
+        _HIGHLIGHT_COLOR if highlight_substr.lower() in label.lower() else _NEUTRAL_COLOR
+        for label in sorted_labels
+    ]
+    fig = go.Figure(
+        go.Bar(
+            x=sorted_labels,
+            y=sorted_values,
+            marker_color=colors,
+            text=[value_fmt.format(v) for v in sorted_values],
+            textposition="outside",
+            hovertemplate="%{x}<br>" + value_label + "=%{y}<extra></extra>",
+        )
+    )
+    direction = "lower is better" if lower_is_better else "higher is better"
+    fig.update_layout(
+        height=height,
+        margin=dict(l=12, r=12, t=44, b=86),
+        title=f"{value_label} — ranked ({direction})",
+        yaxis_title=value_label,
+        showlegend=False,
+        xaxis=dict(fixedrange=True, tickangle=-22),
+        yaxis=dict(fixedrange=True),
+    )
+    return fig
+
+
+def tradeoff_scatter_chart(
+    models: list[str],
+    rmse: list[float],
+    dir_acc: list[float],
+    *,
+    highlight_substr: str = "CryptoMamba",
+    height: int = 430,
+) -> go.Figure:
+    """RMSE (y, lower better) vs directional accuracy (x, higher better). Best = bottom-right."""
+    fig = go.Figure()
+    for model, x, y in zip(models, dir_acc, rmse):
+        highlighted = highlight_substr.lower() in model.lower()
+        fig.add_trace(
+            go.Scatter(
+                x=[x],
+                y=[y],
+                mode="markers+text",
+                text=[model],
+                textposition="top center",
+                marker=dict(
+                    size=18 if highlighted else 12,
+                    color=_HIGHLIGHT_COLOR if highlighted else "#94a3b8",
+                    line=dict(width=1, color="#1e293b"),
+                ),
+                showlegend=False,
+                hovertemplate=f"{model}<br>Directional acc=%{{x:.1f}}%<br>RMSE=%{{y:,.1f}}<extra></extra>",
+            )
+        )
+    fig.update_layout(
+        height=height,
+        margin=dict(l=12, r=12, t=48, b=48),
+        title="Error vs direction — best models sit bottom-right",
+        xaxis_title="Directional accuracy (%) — higher is better →",
+        yaxis_title="RMSE — lower is better ↓",
+        xaxis=dict(fixedrange=True),
+        yaxis=dict(fixedrange=True),
+    )
+    return fig
+
+
+def grouped_bar_chart(
+    categories: list[str],
+    series: dict[str, list[float]],
+    *,
+    title: str,
+    y_title: str,
+    value_fmt: str = "{:,.2f}",
+    colors: list[str] | None = None,
+    hline: float | None = None,
+    hline_label: str = "",
+    height: int = 360,
+) -> go.Figure:
+    """Generic grouped bar chart (categories x named series). Optional reference hline."""
+    palette = colors or ["#94a3b8", "#2563eb", _HIGHLIGHT_COLOR, "#0f766e"]
+    fig = go.Figure()
+    for index, (name, vals) in enumerate(series.items()):
+        fig.add_trace(
+            go.Bar(
+                name=name,
+                x=categories,
+                y=vals,
+                marker_color=palette[index % len(palette)],
+                text=[value_fmt.format(v) for v in vals],
+                textposition="outside",
+                hovertemplate=f"{name}<br>%{{x}}=%{{y}}<extra></extra>",
+            )
+        )
+    if hline is not None:
+        fig.add_hline(
+            y=hline,
+            line_dash="dot",
+            line_color="#b45309",
+            annotation_text=hline_label,
+            annotation_position="top right",
+        )
+    fig.update_layout(
+        barmode="group",
+        height=height,
+        margin=dict(l=12, r=12, t=46, b=40),
+        title=title,
+        yaxis_title=y_title,
+        xaxis=dict(fixedrange=True),
+        yaxis=dict(fixedrange=True),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return fig

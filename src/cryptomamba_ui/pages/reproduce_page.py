@@ -10,6 +10,9 @@ from src.cryptomamba_ui.charts import (
     forecast_error_chart,
     forecast_prediction_chart,
     forecast_timeseries_chart,
+    grouped_bar_chart,
+    leaderboard_bar_chart,
+    tradeoff_scatter_chart,
 )
 from src.cryptomamba_ui.reproduce_artifacts import (
     MANDATORY_BASELINES,
@@ -173,6 +176,34 @@ def _render_forecast(artifacts: ReproduceArtifacts) -> None:
             )
 
     st.dataframe(forecast_comparison_table(artifacts.forecast_metrics), hide_index=True, width="stretch")
+
+    fm = artifacts.forecast_metrics
+    official = fm.loc[fm["result_type"] == "official_checkpoint"]
+    retrained = fm.loc[fm["result_type"] == "retrained_checkpoint"]
+    if not official.empty and not retrained.empty:
+        gap_cols = ["RMSE_gap_pct", "MAE_gap_pct", "MAPE_gap_pct"]
+        st.markdown(
+            "**Reproduction fidelity — gap vs paper (%).** Every bar must stay under the dotted "
+            "5% tolerance line. Lower is closer to the paper."
+        )
+        st.plotly_chart(
+            grouped_bar_chart(
+                ["RMSE", "MAE", "MAPE"],
+                {
+                    "Official checkpoint": [float(official.iloc[0][c]) for c in gap_cols],
+                    "Our retrained": [float(retrained.iloc[0][c]) for c in gap_cols],
+                },
+                title="Gap vs paper target — under 5% = reproduced",
+                y_title="Gap vs paper (%)",
+                value_fmt="{:.2f}%",
+                colors=["#94a3b8", "#1e3a8a"],
+                hline=5.0,
+                hline_label="5% tolerance",
+            ),
+            use_container_width=True,
+            config=CHART_CONFIG,
+        )
+
     st.success("Retrained checkpoint passes the agreed 5% forecast-metric tolerance.")
     st.caption("Protocol: global aggregation over the released test split; formulas match scripts/evaluation.py.")
 
@@ -218,14 +249,36 @@ def _largest_forecast_gap(result: pd.Series) -> float:
 def _render_replay(artifacts: ReproduceArtifacts) -> None:
     replay = artifacts.trading_replay_metrics
     st.markdown(
-        "**How to read:** Each row is one trading strategy. "
-        "Paper is the published balance, Official verifies the replay pipeline, "
-        "and Our retrain shows the balance produced by the newly trained checkpoint."
+        "**How to read — three bars per strategy:** "
+        "**Paper** = the balance printed in the paper. "
+        "**Official** = the authors' released checkpoint run through *our* pipeline in Phase 2 "
+        "(a real run — its numbers differ slightly from Paper, e.g. 124.90 vs 124.09). "
+        "**Our retrain** = the checkpoint we trained ourselves. "
+        "Official ≈ Paper is the proof our pipeline is faithful, so any gap in *Our retrain* is the "
+        "model, not buggy code."
     )
     validation_tab, test_tab = st.tabs(["Validation period", "Test period"])
     for tab, split in ((validation_tab, "val"), (test_tab, "test")):
         with tab:
             st.markdown("**Final balance — starting balance: 100**")
+            categories, balance_series = trading_balance_series(replay, split)
+            if categories:
+                st.plotly_chart(
+                    grouped_bar_chart(
+                        categories,
+                        balance_series,
+                        title=f"Final balance by strategy — {split} period (start = 100)",
+                        y_title="Final balance",
+                        value_fmt="{:,.1f}",
+                        colors=["#94a3b8", "#2563eb", "#1e3a8a"],
+                    ),
+                    use_container_width=True,
+                    config=CHART_CONFIG,
+                )
+                st.caption(
+                    "Paper (published) vs Official (authors' checkpoint via our pipeline, Phase 2) "
+                    "vs Our retrain (our checkpoint). Paper ≈ Official ⇒ pipeline verified."
+                )
             st.dataframe(
                 trading_balance_comparison_table(replay, split),
                 hide_index=True,
@@ -243,6 +296,32 @@ def _render_replay(artifacts: ReproduceArtifacts) -> None:
         "Forecast reproduction still passes; the trading mismatch remains an explicit limitation."
     )
     st.caption("Protocol: released utils.trade.trade, chronological order, zero transaction cost, initial balance 100.")
+
+
+_TRADE_MODES = (("vanilla", "Vanilla"), ("smart", "Smart"), ("smart_w_short", "Smart + short"))
+
+
+def trading_balance_series(replay: pd.DataFrame, split: str) -> tuple[list[str], dict[str, list[float]]]:
+    """Build (strategy categories, {Paper/Official/Our retrain: balances}) for the bar chart."""
+    official = replay[
+        (replay["result_type"] == "official_checkpoint") & (replay["split"] == split)
+    ].set_index("trade_mode")
+    retrained = replay[
+        (replay["result_type"] == "retrained_checkpoint") & (replay["split"] == split)
+    ].set_index("trade_mode")
+    if official.empty or retrained.empty:
+        return [], {}
+
+    categories: list[str] = []
+    paper, off, retr = [], [], []
+    for mode, label in _TRADE_MODES:
+        if mode not in official.index or mode not in retrained.index:
+            continue
+        categories.append(label)
+        paper.append(float(official.loc[mode, "paper_final_balance"]))
+        off.append(float(official.loc[mode, "final_balance"]))
+        retr.append(float(retrained.loc[mode, "final_balance"]))
+    return categories, {"Paper": paper, "Official": off, "Our retrain": retr}
 
 
 def trading_balance_comparison_table(replay: pd.DataFrame, split: str) -> pd.DataFrame:
@@ -328,6 +407,45 @@ def significance_table(significance: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def model_metrics_frame(comparison: pd.DataFrame, significance: pd.DataFrame) -> pd.DataFrame:
+    """Tidy per-model frame [model, RMSE, MAE, MAPE_pct, dir_acc_pct] for the comparison
+    charts. CryptoMamba-v's directional accuracy lives in significance_tests.csv (not in
+    the baseline comparison rows), so graft it onto the CryptoMamba-v rows."""
+    cols = ["model", "RMSE", "MAE", "MAPE_pct", "dir_acc_pct"]
+    if comparison.empty:
+        return pd.DataFrame(columns=cols)
+
+    cm_dir: float | None = None
+    if not significance.empty and "cm_directional_acc_pct" in significance.columns:
+        cm_dir = float(significance["cm_directional_acc_pct"].iloc[0])
+
+    rows: list[dict[str, object]] = []
+    for _, record in comparison.iterrows():
+        model = str(record["model"])
+        dir_acc = record.get("directional_accuracy_strict_pct")
+        if (dir_acc is None or pd.isna(dir_acc)) and "cryptomamba" in model.lower() and cm_dir is not None:
+            dir_acc = cm_dir
+        rows.append(
+            {
+                "model": model,
+                "RMSE": float(record["RMSE"]) if pd.notna(record.get("RMSE")) else None,
+                "MAE": float(record["MAE"]) if pd.notna(record.get("MAE")) else None,
+                "MAPE_pct": float(record["MAPE_pct"]) if pd.notna(record.get("MAPE_pct")) else None,
+                "dir_acc_pct": float(dir_acc) if dir_acc is not None and pd.notna(dir_acc) else None,
+            }
+        )
+    return pd.DataFrame(rows, columns=cols)
+
+
+# label -> (column, lower_is_better, value format)
+_LEADERBOARD_METRICS = {
+    "RMSE (lower better)": ("RMSE", True, "{:,.0f}"),
+    "MAE (lower better)": ("MAE", True, "{:,.0f}"),
+    "MAPE % (lower better)": ("MAPE_pct", True, "{:.2f}"),
+    "Directional accuracy % (higher better)": ("dir_acc_pct", False, "{:.1f}"),
+}
+
+
 def _render_baseline(artifacts: ReproduceArtifacts) -> None:
     st.markdown(
         "**How to read:** Baselines are reference models evaluated on the same test split. "
@@ -372,6 +490,45 @@ def _render_baseline(artifacts: ReproduceArtifacts) -> None:
             hide_index=True,
             width="stretch",
         )
+
+    metrics = model_metrics_frame(comparison, significance)
+    if not metrics.empty:
+        st.markdown("**Leaderboard — rank all models by a metric.** CryptoMamba-v is highlighted.")
+        metric_label = st.selectbox(
+            "Metric", list(_LEADERBOARD_METRICS.keys()), key="baseline_leaderboard_metric"
+        )
+        column, lower_is_better, value_fmt = _LEADERBOARD_METRICS[metric_label]
+        ranked = metrics[["model", column]].dropna(subset=[column])
+        if not ranked.empty:
+            st.plotly_chart(
+                leaderboard_bar_chart(
+                    ranked["model"].tolist(),
+                    ranked[column].astype(float).tolist(),
+                    value_label=metric_label.split(" (")[0],
+                    lower_is_better=lower_is_better,
+                    value_fmt=value_fmt,
+                ),
+                use_container_width=True,
+                config=CHART_CONFIG,
+            )
+        else:
+            st.caption(f"No models report {metric_label.split(' (')[0]} yet.")
+
+        scatter = metrics.dropna(subset=["RMSE", "dir_acc_pct"])
+        if len(scatter) >= 2:
+            st.markdown(
+                "**Error vs direction.** The honest trade-off: CryptoMamba-v is not the lowest "
+                "RMSE, but it has the highest directional accuracy — the bottom-right corner is best."
+            )
+            st.plotly_chart(
+                tradeoff_scatter_chart(
+                    scatter["model"].tolist(),
+                    scatter["RMSE"].astype(float).tolist(),
+                    scatter["dir_acc_pct"].astype(float).tolist(),
+                ),
+                use_container_width=True,
+                config=CHART_CONFIG,
+            )
 
     retrained = artifacts.forecast_metrics.loc[
         artifacts.forecast_metrics["result_type"] == "retrained_checkpoint", "RMSE"
