@@ -40,6 +40,7 @@ OFFLINE_PREDICTION_PATH = EVALUATION_DIR / "offline_prediction.json"
 
 def initialize_session_state() -> None:
     st.session_state.setdefault("data_mode", "Paper dataset")
+    st.session_state.setdefault("active_data_mode", "Paper dataset")
     st.session_state.setdefault("api_url", os.getenv("CRYPTO_MAMBA_API_URL", ""))
     st.session_state.setdefault("risk", 2.0)
     st.session_state.setdefault("replace_uploaded_csv", False)
