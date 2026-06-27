@@ -68,6 +68,37 @@ def render_data_source_controls() -> tuple[str, Any | None]:
                 st.caption(f"`{retained_name}` remains active until a replacement CSV is uploaded.")
             else:
                 st.caption("Upload a BTC-compatible OHLCV CSV to test the data processing pipeline. This does not change the thesis scope from BTC.")
+    # Mirror the selection into a plain (non-widget) key. Streamlit garbage-collects
+    # widget-keyed state ("data_mode") when the widget is not rendered, so screens that
+    # don't render the radio (Predict) must read this persisted mirror instead.
+    st.session_state["active_data_mode"] = data_mode
+    return data_mode, uploaded
+
+
+def render_data_source_indicator() -> tuple[str, Any | None]:
+    """Read-only mirror of the dataset chosen on the Data screen.
+
+    Unlike ``render_data_source_controls`` this renders no radio/uploader: downstream
+    screens (Predict) inherit the active dataset from shared session state instead of
+    re-asking for it. Returns the same ``(data_mode, uploaded)`` tuple so callers can
+    load the dataset identically.
+    """
+    # Read the persisted mirror, not the widget key: "data_mode" is garbage-collected
+    # by Streamlit once the radio (rendered only on the Data screen) unmounts.
+    data_mode = str(st.session_state.get("active_data_mode", st.session_state.get("data_mode", "Paper dataset")))
+    if data_mode == "Paper sample":
+        data_mode = "Paper dataset"
+
+    uploaded = None
+    if data_mode == "Upload CSV":
+        retained_name = retained_uploaded_csv_name()
+        if retained_name:
+            uploaded = remember_uploaded_csv(None)
+            st.caption(f"Dataset: **Upload CSV** — `{retained_name}` · chosen on the **Data** screen.")
+        else:
+            st.caption("Dataset: **Upload CSV** selected but no file uploaded — upload it on the **Data** screen.")
+    else:
+        st.caption("Dataset: **Paper dataset** · chosen on the **Data** screen.")
     return data_mode, uploaded
 
 
