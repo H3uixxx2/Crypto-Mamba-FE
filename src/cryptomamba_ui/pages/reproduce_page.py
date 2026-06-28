@@ -101,6 +101,27 @@ def render_reproduce_page(
         _render_evidence(artifacts, selected_checkpoint_path)
 
 
+def _artifact_scalar(frame: pd.DataFrame, col: str, **filters: object) -> float | None:
+    """First value of ``col`` from rows matching ``filters``, or None if unavailable.
+
+    Used so caption metrics are sourced from the loaded artifacts instead of being
+    hardcoded — keeps the text from going stale if the underlying CSVs change.
+    """
+    if frame is None or frame.empty or col not in frame.columns:
+        return None
+    sub = frame
+    for key, value in filters.items():
+        if key not in sub.columns:
+            return None
+        sub = sub[sub[key] == value]
+    if sub.empty:
+        return None
+    try:
+        return float(sub[col].iloc[0])
+    except (TypeError, ValueError):
+        return None
+
+
 def _status_card(title: str, verdict: str, meaning: str, tone: str) -> None:
     icon = {"ok": "✅", "warn": "⚠️", "bad": "⛔"}.get(tone, "•")
     st.markdown(
@@ -136,12 +157,32 @@ def _render_forecast(artifacts: ReproduceArtifacts) -> None:
             use_container_width=True,
             config=CHART_CONFIG,
         )
+        # Source every number from the artifacts so the caption can never drift from the charts.
+        cm_mape = _artifact_scalar(
+            artifacts.forecast_metrics, "MAPE_pct",
+            result_type="retrained_checkpoint", split="test",
+        )
+        naive_mape = _artifact_scalar(
+            artifacts.baseline_metrics, "MAPE_pct",
+            model="naive_persistence", split="test",
+        )
+        cm_diracc = _artifact_scalar(artifacts.significance, "cm_directional_acc_pct")
+        if None not in (cm_mape, naive_mape, cm_diracc):
+            comparison = (
+                f"CryptoMamba-v (red, MAPE ~{cm_mape:.2f}%) sits marginally **above** naive "
+                f"(amber, ~{naive_mape:.2f}%): on squared/absolute error they are statistically "
+                f"tied. CryptoMamba-v's edge is **directional accuracy** ({cm_diracc:.2f}% vs "
+                "naive 0%), not price error"
+            )
+        else:
+            comparison = (
+                "CryptoMamba-v sits marginally above naive on squared/absolute error (statistically "
+                "tied); its edge is **directional accuracy**, not price error"
+            )
         st.caption(
             "Absolute % error per day (dotted line = each model's MAPE). On the raw price chart "
             "everything overlaps because day-to-day moves are tiny vs the $30–70K level — so the "
-            "real signal is here. CryptoMamba-v (red, MAPE ~2.05%) sits marginally **above** naive "
-            "(amber, ~1.97%): on squared/absolute error they are statistically tied. CryptoMamba-v's "
-            "edge is **directional accuracy** (56.86% vs naive 0%), not price error — see the Baseline tab."
+            f"real signal is here. {comparison} — see the Baseline tab."
         )
         with st.expander("Paper-style overlay — predicted vs actual close over the full split"):
             st.plotly_chart(

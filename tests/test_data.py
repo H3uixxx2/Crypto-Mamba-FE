@@ -168,6 +168,18 @@ class DataPipelineTest(unittest.TestCase):
         self.assertEqual(payload["candles"][-1]["date"], "2024-01-16")
         self.assertTrue(all(isinstance(candle["close"], float) for candle in payload["candles"]))
 
+    def test_build_predict_payload_past_date_uses_historical_window(self) -> None:
+        # Regression: a past prediction_date must feed the model the 14 candles ending
+        # strictly BEFORE it (same window the chart shows), not the latest 14 candles.
+        df = self._frame_with_dates([f"2024-01-{day:02d}" for day in range(1, 21)])
+
+        payload = build_predict_payload(df, prediction_date="2024-01-15", risk=2)
+
+        self.assertEqual(payload["prediction_date"], "2024-01-15")
+        self.assertEqual(len(payload["candles"]), 14)
+        self.assertEqual(payload["candles"][0]["date"], "2024-01-01")
+        self.assertEqual(payload["candles"][-1]["date"], "2024-01-14")
+
     def test_model_tensor_preview_contract(self) -> None:
         df = self._frame_with_dates([f"2024-01-{day:02d}" for day in range(1, 15)])
 
