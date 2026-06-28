@@ -251,8 +251,14 @@ def split_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_predict_payload(df: pd.DataFrame, prediction_date: str | None, risk: float) -> dict[str, Any]:
-    normalized = normalize_candles(df).tail(MODEL_WINDOW_SIZE)
-    if not prediction_date:
+    # The payload window MUST be the candles the chart shows for this date: for a past
+    # prediction_date use the window ending strictly before it (same as select_window),
+    # otherwise the model would be fed the latest 14 candles while the UI charts a
+    # historical window. For the default next-day case, use the last 14 candles.
+    if prediction_date:
+        normalized = select_window(df, prediction_date)
+    else:
+        normalized = normalize_candles(df).tail(MODEL_WINDOW_SIZE)
         last_date = datetime.strptime(str(normalized["date"].iloc[-1]), "%Y-%m-%d")
         prediction_date = (last_date + timedelta(days=1)).strftime("%Y-%m-%d")
 
